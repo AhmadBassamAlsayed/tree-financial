@@ -4,6 +4,7 @@ const { successResponse, errorResponse } = require('../utils/response.utils');
 const { generateUniqueSN } = require('../utils/sn.utils');
 const { getBalance, canDebit } = require('../utils/balance.utils');
 const { signFingerprint } = require('../utils/fingerprint.utils');
+const { isShopOwner } = require('../utils/shopsClient');
 const crypto = require('crypto');
 
 // POST /api/wallets
@@ -34,6 +35,21 @@ const getWallet = async (req, res) => {
   try {
     const account = await Account.findOne({ where: { sn: req.params.sn } });
     if (!account) return errorResponse(res, 404, 'Wallet not found');
+
+    // Ownership check: user wallet → must be the wallet owner
+    //                  shop wallet  → must be the shop's owner (verified via shops service)
+    let authorized = false;
+    if (account.type === 'user') {
+      authorized = req.userId === account.userId;
+    } else {
+      try {
+        authorized = await isShopOwner(account.shopId, req.userId);
+      } catch {
+        return errorResponse(res, 503, 'Could not verify shop ownership — shops service unavailable');
+      }
+    }
+
+    if (!authorized) return errorResponse(res, 403, 'Forbidden: you do not own this wallet');
 
     const balance = await getBalance(account.id);
 

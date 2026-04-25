@@ -7,7 +7,7 @@ const { Account } = require('../models/Index');
  * @returns {Promise<string>}
  */
 const generateUniqueSN = async () => {
-  for (let attempt = 0; attempt < 10; attempt++) {
+  for (let attempt = 0; attempt < 21; attempt++) {
     const first = crypto.randomInt(1, 10).toString();
     let rest = '';
     for (let i = 0; i < 19; i++) rest += crypto.randomInt(0, 10).toString();
@@ -16,7 +16,7 @@ const generateUniqueSN = async () => {
     const existing = await Account.findOne({ where: { sn } });
     if (!existing) return sn;
   }
-  throw new Error('Failed to generate a unique SN after 10 attempts');
+  throw new Error('Failed to generate a unique SN after 21 attempts');
 };
 
 module.exports = { generateUniqueSN };
