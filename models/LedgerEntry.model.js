@@ -33,7 +33,6 @@ const LedgerEntry = sequelize.define('LedgerEntry', {
     defaultValue: 'pending',
     field: 'status'
   },
-  // Signed token containing: { id, amount, direction, status, old_balance, new_balance }
   // Verifying this chain proves the balance history has not been tampered with
   fingerprint: {
     type: DataTypes.TEXT,

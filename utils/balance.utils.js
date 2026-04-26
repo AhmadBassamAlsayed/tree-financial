@@ -1,4 +1,5 @@
 const { verifyFingerprint } = require('./fingerprint.utils');
+const { Op, literal } = require('sequelize');
 
 /**
  * Returns the current balance of an account by reading the latest completed
@@ -35,4 +36,34 @@ const canDebit = async (accountId, amount, t = null) => {
   return balance >= amount;
 };
 
-module.exports = { getBalance, canDebit };
+const getBalances = async (accountIds, t = null) => {
+  const { LedgerEntry } = require('../models/Index');
+
+  if (!accountIds.length) return new Map();
+
+  const safeIds = accountIds.map(id => parseInt(id)).join(',');
+
+  const entries = await LedgerEntry.findAll({
+    where: {
+      accountId: { [Op.in]: accountIds },
+      status: 'completed',
+      id: {
+        [Op.in]: literal(
+          `(SELECT MAX(id) FROM ledger_entries WHERE status='completed' AND account_id IN (${safeIds}) GROUP BY account_id)`
+        )
+      }
+    },
+    ...(t && { lock: t.LOCK.UPDATE, transaction: t })
+  });
+
+  const balanceMap = new Map(accountIds.map(id => [id, 0]));
+  for (const entry of entries) {
+    if (entry.fingerprint) {
+      const payload = verifyFingerprint(entry.fingerprint);
+      balanceMap.set(entry.accountId, payload.new_balance);
+    }
+  }
+  return balanceMap;
+};
+
+module.exports = { getBalance, getBalances, canDebit };

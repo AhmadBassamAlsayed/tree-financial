@@ -2,15 +2,68 @@ const { sequelize } = require('../config/database');
 const { Account, Transaction, LedgerEntry } = require('../models/Index');
 const { successResponse, errorResponse } = require('../utils/response.utils');
 const { generateUniqueSN } = require('../utils/sn.utils');
-const { getBalance, canDebit } = require('../utils/balance.utils');
+const { getBalance, getBalances, canDebit } = require('../utils/balance.utils');
 const { signFingerprint } = require('../utils/fingerprint.utils');
 const { isShopOwner } = require('../utils/shopsClient');
 const crypto = require('crypto');
+
+const getShopWallets = async (req,res)=>{
+  try {
+    const shopId=req.params.shopId
+
+    let authorized=false;
+    try {
+      authorized = await isShopOwner(shopId, req.userId);
+    } catch {
+      return errorResponse(res, 503, 'Could not verify shop ownership — shops service unavailable');
+    }
+    if (!authorized) return errorResponse(res, 403, 'Forbidden: you do not own this shop');
+    
+  
+    const accounts = await Account.findAll({ where: { shopId, status: ['active', 'frozen'] } });
+    if (!accounts.length) return errorResponse(res, 404, 'No wallets found');
+
+    const balanceMap = await getBalances(accounts.map(a => a.id));
+    const result = accounts.map(a => ({ ...a.toJSON(), balance: balanceMap.get(a.id) ?? 0 }));
+
+    return successResponse(res, 200, 'Wallets fetched', result);
+  } catch (err) {
+    console.error('getWallet error:', err);
+    return errorResponse(res, 500, 'Failed to fetch wallet', err);
+  }
+}
+
+const getPersonalWallets = async (req,res)=>{
+  try {
+    const accounts = await Account.findAll({ where: { userId: req.userId, status: ['active', 'frozen'] } });
+    if (!accounts.length) return errorResponse(res, 404, 'No wallets found');
+
+    const balanceMap = await getBalances(accounts.map(a => a.id));
+    const result = accounts.map(a => ({ ...a.toJSON(), balance: balanceMap.get(a.id) ?? 0 }));
+
+    return successResponse(res, 200, 'Wallets fetched', result);
+  } catch (err) {
+    console.error('getWallet error:', err);
+    return errorResponse(res, 500, 'Failed to fetch wallet', err);
+  }  
+}
 
 // POST /api/wallets
 const createWallet = async (req, res) => {
   try {
     const { type, userId, shopId, currency } = req.body;
+
+    const whereClause = type === 'user'
+      ? { type: 'user', userId, currency }
+      : { type: 'shop', shopId, currency };
+
+    const existing = await Account.findOne({ where: whereClause });
+    if (existing) {
+      const msg = existing.status === 'inactive'
+        ? `A closed ${currency} wallet already exists. Contact support to reopen it.`
+        : `You already have a ${existing.status} ${currency} wallet.`;
+      return errorResponse(res, 409, msg);
+    }
 
     const sn = await generateUniqueSN();
 
@@ -188,4 +241,4 @@ const withdraw = async (req, res) => {
   }
 };
 
-module.exports = { createWallet, getWallet, deposit, withdraw };
+module.exports = { createWallet, getWallet, deposit, withdraw,getShopWallets,getPersonalWallets };
