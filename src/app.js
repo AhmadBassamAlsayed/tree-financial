@@ -20,6 +20,9 @@ app.use(express.json());
 // Swagger docs (public)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// Internal routes use X-Internal-Secret — no Bearer token needed
+app.use('/api/internal', require('../routes/internalRoutes'));
+
 // All routes below require a valid SSO token
 app.use(authenticate);
 

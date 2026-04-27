@@ -66,4 +66,27 @@ const getBalances = async (accountIds, t = null) => {
   return balanceMap;
 };
 
-module.exports = { getBalance, getBalances, canDebit };
+/**
+ * Returns the spendable balance = total balance - sum of all active holds.
+ * @param {number} accountId
+ * @param {import('sequelize').Transaction|null} t
+ * @returns {Promise<number>}
+ */
+const getAvailableBalance = async (accountId, t = null) => {
+  const { AccountHold } = require('../models/Index');
+  const { fn, col } = require('sequelize');
+
+  const [balance, holdsResult] = await Promise.all([
+    getBalance(accountId, t),
+    AccountHold.findOne({
+      where: { accountId, status: 'active' },
+      attributes: [[fn('COALESCE', fn('SUM', col('amount')), 0), 'total']],
+      ...(t && { transaction: t })
+    })
+  ]);
+
+  const activeHolds = parseFloat(holdsResult?.dataValues?.total || 0);
+  return balance - activeHolds;
+};
+
+module.exports = { getBalance, getBalances, canDebit, getAvailableBalance };
