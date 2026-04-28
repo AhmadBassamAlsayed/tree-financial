@@ -1,5 +1,9 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 
+const PORT = process.env.PORT || 3004;
+const HOST = process.env.SWAGGER_HOST || 'localhost';
+const PROTOCOL = process.env.SWAGGER_PROTOCOL || 'http';
+
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -9,7 +13,7 @@ const options = {
       description: 'Financial service for the Tree platform. Manages wallets, ledger entries, and payments.',
     },
     servers: [
-      { url: 'http://localhost:3004', description: 'Development' }
+      { url: `${PROTOCOL}://${HOST}:${PORT}`, description: 'Tree Financial service' }
     ],
     components: {
       securitySchemes: {
