@@ -265,7 +265,7 @@ router.post('/', createWalletRules, validate, createWallet);
  *                 summary: Requester does not own this wallet
  *                 value:
  *                   success: false
- *                   message: Forbidden: you do not own this wallet
+ *                   message: "Forbidden: you do not own this wallet"
  *                   error: null
  *               deleted:
  *                 summary: Account deleted
@@ -382,7 +382,7 @@ router.get('/:sn', getWallet);
  *                 summary: User does not own this shop
  *                 value:
  *                   success: false
- *                   message: Forbidden: you do not own this shop
+ *                   message: "Forbidden: you do not own this shop"
  *                   error: null
  *               deleted:
  *                 summary: Account deleted

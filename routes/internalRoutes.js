@@ -7,6 +7,7 @@ const internalAccountController = require('../controllers/internalAccountControl
 router.use(internalAuth);
 
 // Holds
+router.post('/holds/batch', holdController.createHoldsBatch);
 router.post('/holds', holdController.createHold);
 router.get('/holds/:holdId', holdController.getHold);
 router.post('/holds/:holdId/capture', holdController.captureHold);
