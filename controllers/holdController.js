@@ -250,4 +250,105 @@ const createHoldsBatch = async (req, res) => {
   }
 };
 
-module.exports = { createHold, captureHold, releaseHold, getHold, updateHoldReference, createHoldsBatch };
+// Atomically captures all holds in one transaction — all succeed or all fail.
+// Body: { captures: [{ holdId, shopAccountSN }] }
+const captureHoldsBatch = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { captures } = req.body;
+    if (!Array.isArray(captures) || captures.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'INVALID_REQUEST', message: 'captures must be a non-empty array' });
+    }
+
+    const results = [];
+
+    for (const { holdId, shopAccountSN } of captures) {
+      const hold = await AccountHold.findByPk(holdId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!hold) {
+        await t.rollback();
+        return res.status(404).json({ error: 'HOLD_NOT_FOUND', holdId });
+      }
+      if (hold.status !== 'active') {
+        await t.rollback();
+        return res.status(400).json({ error: 'HOLD_NOT_ACTIVE', holdId });
+      }
+
+      const shopAccount = await Account.findOne({
+        where: { sn: shopAccountSN, status: 'active' },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      });
+      if (!shopAccount) {
+        await t.rollback();
+        return res.status(404).json({ error: 'SHOP_ACCOUNT_NOT_FOUND', shopAccountSN });
+      }
+
+      const customerAccount = await Account.findByPk(hold.accountId, { transaction: t, lock: t.LOCK.UPDATE });
+      const amount = parseFloat(hold.amount);
+
+      const customerOldBalance = await getBalance(customerAccount.id, t);
+      const shopOldBalance     = await getBalance(shopAccount.id, t);
+
+      const txn = await Transaction.create({
+        referenceNumber: `TXN-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        type: 'TRANSFER',
+        totalDebit: amount,
+        totalCredit: amount,
+        currency: customerAccount.currency,
+        status: 'pending',
+        description: `Group purchase hold capture #${hold.id}`
+      }, { transaction: t });
+
+      const debitEntry = await LedgerEntry.create({
+        transactionId: txn.id,
+        accountId: customerAccount.id,
+        amount,
+        direction: 'DEBIT',
+        status: 'pending',
+        fingerprint: null
+      }, { transaction: t });
+
+      await debitEntry.update({
+        status: 'completed',
+        fingerprint: signFingerprint({
+          id: debitEntry.id, amount, direction: 'DEBIT', status: 'completed',
+          old_balance: customerOldBalance,
+          new_balance: customerOldBalance - amount
+        })
+      }, { transaction: t });
+
+      const creditEntry = await LedgerEntry.create({
+        transactionId: txn.id,
+        accountId: shopAccount.id,
+        amount,
+        direction: 'CREDIT',
+        status: 'pending',
+        fingerprint: null
+      }, { transaction: t });
+
+      await creditEntry.update({
+        status: 'completed',
+        fingerprint: signFingerprint({
+          id: creditEntry.id, amount, direction: 'CREDIT', status: 'completed',
+          old_balance: shopOldBalance,
+          new_balance: shopOldBalance + amount
+        })
+      }, { transaction: t });
+
+      await txn.update({ status: 'completed' }, { transaction: t });
+      await hold.update({ status: 'captured' }, { transaction: t });
+
+      results.push({ holdId: hold.id, status: 'captured' });
+    }
+
+    await t.commit();
+    return res.status(200).json({ captured: results });
+  } catch (err) {
+    await t.rollback();
+    console.error('captureHoldsBatch error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message });
+  }
+};
+
+module.exports = { createHold, captureHold, releaseHold, getHold, updateHoldReference, createHoldsBatch, captureHoldsBatch };
